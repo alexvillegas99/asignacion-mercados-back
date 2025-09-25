@@ -11,7 +11,7 @@ import { ClientsModule } from './clients/clients.module';
 import { MarketsModule } from './markets/markets.module';
 import { StallsModule } from './stalls/stalls.module';
 @Module({
-  imports: [
+  imports: [ 
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     DatabaseModule,
     LogsModule,
