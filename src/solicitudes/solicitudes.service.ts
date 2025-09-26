@@ -250,7 +250,7 @@ async aprobar(ordenIdOrReferencia: string) {
   }
 
   // === Cron Job: cada 10 minutos ===
-  @Cron(CronExpression.EVERY_10_MINUTES)
+@Cron(CronExpression.EVERY_MINUTE, { name: 'solicitudes-every-minute' })
   async revisarExpiraciones() {
     const ahora = new Date();
     this.logger.debug(
