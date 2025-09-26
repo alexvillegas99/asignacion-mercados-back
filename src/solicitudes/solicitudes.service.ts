@@ -58,107 +58,158 @@ export class SolicitudesService {
   }
 
   // === Postular (reservar el mismo stall de la solicitud) ===
-  async postular(solicitudId: string, ip: string) {
-    const solicitud = await this.solicitudModel.findById(solicitudId);
-    if (!solicitud) throw new BadRequestException('Solicitud no existe');
-    if (solicitud.estado !== 'EN_SOLICITUD')
-      throw new BadRequestException('Estado inválido');
-    if (!solicitud.stall)
-      throw new BadRequestException('Solicitud sin puesto asignado');
+ async postular(solicitudId: string, ip: string) {
+  // 0) Cargar solicitud y validaciones básicas
+  const solicitud = await this.solicitudModel.findById(solicitudId);
+  if (!solicitud) throw new BadRequestException('Solicitud no existe');
+  if (solicitud.estado !== 'EN_SOLICITUD')
+    throw new BadRequestException('Estado inválido');
+  if (!solicitud.stall)
+    throw new BadRequestException('Solicitud sin puesto asignado');
 
-    const aprobarAntesDe = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const cedula = String(solicitud.cedula);
 
-    // reserva atómica
-    const stall = await this.stallModel.findOneAndUpdate(
-      { _id: solicitud.stall, estado: { $in: ['LIBRE', 'disponible'] } },
-      { $set: { estado: 'RESERVADO', reservadoHasta: aprobarAntesDe } },
-      { new: true },
+  // 🚧 1) Guards anti-duplicados por cédula (muy importantes)
+  // 1.1) Ya tiene un puesto a cargo o reservado actualmente
+  const yaTienePuesto = await this.stallModel.exists({
+    'personaACargoActual.cedula': cedula,
+    estado: { $in: ['OCUPADO', 'RESERVADO'] },
+  });
+  if (yaTienePuesto) {
+    throw new BadRequestException(
+      'Ya tienes un puesto asignado o reservado. No puedes postular nuevamente.',
     );
-    if (!stall)
-      throw new BadRequestException('Conflicto: el puesto ya no está libre');
-
-    // === 1) Generar secuencial simple ===
-    const ultimo: any = await this.ordenModel
-      .findOne({}, {}, { sort: { secuencial: -1 } })
-      .lean();
-    const secuencial = (ultimo?.secuencial || 0) + 1;
-    const referencia = String(secuencial).padStart(4, '0');
-    // === 2) Crear OrdenReserva ===
-    const orden: any = await this.ordenModel.create({
-      secuencial, // 👈 nuevo campo
-      referencia,
-      market: solicitud.market,
-      section: solicitud.section,
-      stall: stall._id,
-      solicitud: solicitud._id,
-      fechaInicio: solicitud.fechaInicio,
-      fechaFin: solicitud.fechaFin,
-      estado: 'EN_SOLICITUD',
-      aprobarAntesDe,
-      persona: {
-        nombre: solicitud.nombres,
-        apellido: '',
-        cedula: solicitud.cedula,
-        telefono: solicitud.telefono,
-        email: solicitud.correo,
-        codigoDactilar: solicitud.dactilar,
-      },
-    });
-
-    await this.solicitudModel.findByIdAndUpdate(solicitud._id, {
-      $set: { estado: 'POSTULADA', ordenId: orden._id },
-    });
-
-    // === 3) Enviar payload al servicio externo ===
-    const payload = {
-      clave: solicitud.cedula,
-      estado: 'P',
-      fechaExpiracion: orden.fechaFin.toISOString(),
-      referencia, // ej: "0008"
-      observacion: `Orden de puesto ${stall.code}`,
-      valor: 0.8, // 👈 aquí debes calcular el valor real
-      codSistema: 6,
-      ipCrea: ip, // opcional: lee de req.ip
-      idPayer: solicitud.cedula,
-      celular: solicitud.telefono,
-      direccion: 'Ambato', // 👈 si lo pides en el formulario puedes reemplazar
-      email: solicitud.correo,
-      nombre: solicitud.nombres,
-      tipoDoc: '2',
-      det: [
-        {
-          descripcion: `Uso temporal de puesto ${stall.code}`,
-          idPago: `PAGO${String(secuencial).padStart(3, '0')}`,
-          valor: 0.8,
-          rubro: 9999,
-        },
-      ],
-      generarProforma: true,
-    };
-    console.debug(payload);
-    console.log('payload crear orden de pago');
-    let repuestaOrdenGadma: any = null;
-    try {
-      const resp = await firstValueFrom(
-        this.http.post(
-          'https://appbackend.ambato.gob.ec:3002/mercados/ordenpago/crear',
-          payload,
-        ),
-      );
-      this.logger.log(
-        `Orden de pago creada en sistema externo: ${JSON.stringify(resp.data)}`,
-      );
-      repuestaOrdenGadma = resp.data;
-      // opcional: guardar respuesta externa en la orden
-      await this.ordenModel.findByIdAndUpdate(orden._id, {
-        $set: { pagoExterno: resp.data },
-      });
-    } catch (e) {
-      this.logger.error('Error creando orden de pago externa', e);
-    }
-    orden.pagoExterno = repuestaOrdenGadma;
-    return orden;
   }
+
+  // 1.2) Ya tiene una orden activa en proceso
+  const ordenActiva = await this.ordenModel.exists({
+    'persona.cedula': cedula,
+    estado: { $in: ['EN_SOLICITUD', 'ASIGNADA', 'OCUPADA'] },
+  });
+  if (ordenActiva) {
+    throw new BadRequestException(
+      'Tienes una orden activa en proceso. Finaliza o cancela antes de postular nuevamente.',
+    );
+  }
+
+  // 1.3) Ya tiene otra solicitud en curso (distinta a esta)
+  const otraSolicitud = await this.solicitudModel.exists({
+    _id: { $ne: solicitud._id },
+    cedula,
+    estado: { $in: ['EN_SOLICITUD', 'POSTULADA', 'APROBADA'] },
+  });
+  if (otraSolicitud) {
+    throw new BadRequestException(
+      'Ya tienes una solicitud en curso. Espera su resolución antes de postular nuevamente.',
+    );
+  }
+
+  // 2) Reserva atómica del puesto (solo si está disponible)
+  const aprobarAntesDe = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+  const stall = await this.stallModel.findOneAndUpdate(
+    { _id: solicitud.stall, estado: { $in: ['LIBRE', 'disponible'] } },
+    { $set: { estado: 'RESERVADO', reservadoHasta: aprobarAntesDe } },
+    { new: true },
+  );
+  if (!stall)
+    throw new BadRequestException('Conflicto: el puesto ya no está libre');
+
+  // 3) Generar secuencial y referencia simples
+  const ultimo: any = await this.ordenModel
+    .findOne({}, {}, { sort: { secuencial: -1 } })
+    .lean();
+  const secuencial = (ultimo?.secuencial || 0) + 1;
+  const referencia = String(secuencial).padStart(4, '0');
+
+  // 4) Crear OrdenReserva en EN_SOLICITUD
+  let orden: any = await this.ordenModel.create({
+    secuencial,
+    referencia,
+    market: solicitud.market,
+    section: solicitud.section,
+    stall: stall._id,
+    solicitud: solicitud._id,
+    fechaInicio: solicitud.fechaInicio,
+    fechaFin: solicitud.fechaFin,
+    estado: 'EN_SOLICITUD',
+    aprobarAntesDe,
+    persona: {
+      nombre: solicitud.nombres,
+      apellido: '',
+      cedula: solicitud.cedula,
+      telefono: solicitud.telefono,
+      email: solicitud.correo,
+      codigoDactilar: solicitud.dactilar,
+    },
+  });
+
+  await this.solicitudModel.findByIdAndUpdate(solicitud._id, {
+    $set: { estado: 'POSTULADA', ordenId: orden._id },
+  });
+
+  // 5) Llamada a pago externo (con compensación si falla)
+  const payload = {
+    clave: solicitud.cedula,
+    estado: 'P',
+    fechaExpiracion: orden.fechaFin.toISOString(),
+    referencia,
+    observacion: `Orden de puesto ${stall.code}`,
+    valor: 0.8, // TODO: calcular valor real
+    codSistema: 6,
+    ipCrea: ip,
+    idPayer: solicitud.cedula,
+    celular: solicitud.telefono,
+    direccion: 'Ambato',
+    email: solicitud.correo,
+    nombre: solicitud.nombres,
+    tipoDoc: '2',
+    det: [
+      {
+        descripcion: `Uso temporal de puesto ${stall.code}`,
+        idPago: `PAGO${String(secuencial).padStart(3, '0')}`,
+        valor: 0.8,
+        rubro: 9999,
+      },
+    ],
+    generarProforma: true,
+  };
+
+  let respuestaPago: any = null;
+  try {
+    const resp = await firstValueFrom(
+      this.http.post(
+        'https://appbackend.ambato.gob.ec:3002/mercados/ordenpago/crear',
+        payload,
+      ),
+    );
+    respuestaPago = resp.data;
+
+    await this.ordenModel.findByIdAndUpdate(orden._id, {
+      $set: { pagoExterno: resp.data },
+    });
+  } catch (e) {
+    // 🔁 Compensación: liberar puesto, revertir solicitud y marcar orden como rechazada
+    await this.stallModel.findByIdAndUpdate(stall._id, {
+      $set: { estado: 'LIBRE', reservadoHasta: null },
+    });
+    await this.solicitudModel.findByIdAndUpdate(solicitud._id, {
+      $set: { estado: 'EN_SOLICITUD' },
+      $unset: { ordenId: '' },
+    });
+    await this.ordenModel.findByIdAndUpdate(orden._id, {
+      $set: { estado: 'RECHAZADA', observacion: 'Error creando orden externa' },
+    });
+    this.logger.error('Error creando orden de pago externa', e);
+    throw new BadRequestException(
+      'No se pudo crear la orden de pago externa. Intenta nuevamente.',
+    );
+  }
+
+  // 6) Retorno con pagoExterno adjunto
+  orden = { ...(orden.toObject?.() ? orden.toObject() : orden), pagoExterno: respuestaPago };
+  return orden;
+}
+
 
   // === Aprobar (ocupa y programa liberación por fecha) ===
   // src/solicitudes/solicitudes.service.ts
@@ -251,76 +302,109 @@ async aprobar(ordenIdOrReferencia: string) {
 
   // === Cron Job: cada 10 minutos ===
 @Cron(CronExpression.EVERY_MINUTE, { name: 'solicitudes-every-minute' })
-  async revisarExpiraciones() {
-    const ahora = new Date();
-    this.logger.debug(
-      `Ejecutando revisión de expiraciones @ ${ahora.toISOString()}`,
+@Cron(CronExpression.EVERY_MINUTE, { name: 'solicitudes-every-minute' })
+async revisarExpiraciones() {
+  const ahora = new Date();
+  this.logger.debug(`Revisión de expiraciones @ ${ahora.toISOString()}`);
+
+  // ------------------------------------------------------------------
+  // 1) Órdenes EN_SOLICITUD vencidas (no se aprobaron a tiempo)
+  // ------------------------------------------------------------------
+  const vencidas = await this.ordenModel
+    .find({ estado: 'EN_SOLICITUD', aprobarAntesDe: { $lte: ahora } })
+    .select({ _id: 1, stall: 1, solicitud: 1 })
+    .lean();
+
+  for (const o of vencidas) {
+    const updated = await this.ordenModel.findOneAndUpdate(
+      { _id: o._id, estado: 'EN_SOLICITUD' },
+      { $set: { estado: 'VENCIDA', vencidaEn: ahora } },
+      { new: true },
+    );
+    if (!updated) continue;
+
+    // Libera puesto si quedó RESERVADO
+    await this.stallModel.findOneAndUpdate(
+      { _id: o.stall, estado: 'RESERVADO' },
+      { $set: { estado: 'LIBRE', reservadoHasta: null } },
     );
 
-    // 1) Ordenes EN_SOLICITUD vencidas (24h)
-    const vencidas = await this.ordenModel
-      .find({
-        estado: 'EN_SOLICITUD',
-        aprobarAntesDe: { $lte: ahora },
-      })
-      .limit(500);
+    // La solicitud puede quedar en EN_SOLICITUD (usuario podría reintentar)
+    // o en EXPIRADA si quieres bloquear.
+    await this.solicitudModel.findByIdAndUpdate(o.solicitud, {
+      $set: { estado: 'EN_SOLICITUD' },
+    });
+  }
 
-    for (const o of vencidas) {
-      const updated = await this.ordenModel.findOneAndUpdate(
-        { _id: o._id, estado: 'EN_SOLICITUD' },
-        { $set: { estado: 'VENCIDA' } },
-        { new: true },
-      );
-      if (!updated) continue;
+  // ------------------------------------------------------------------
+  // 2) Órdenes OCUPADAS (o ASIGNADAS) cuyo periodo de uso terminó
+  //    *Si tras aprobar usas 'ASIGNADA', agrega ese estado aquí*
+  // ------------------------------------------------------------------
+  const paraLiberar = await this.ordenModel
+    .find({
+      estado: { $in: ['OCUPADA'] }, // o ['ASIGNADA','OCUPADA'] si usas ASIGNADA
+      $or: [{ liberarEn: { $lte: ahora } }, { fechaFin: { $lte: ahora } }],
+    })
+    .select({ _id: 1, stall: 1, solicitud: 1, persona: 1, fechaInicio: 1, fechaFin: 1 })
+    .lean();
 
-      await this.stallModel.findOneAndUpdate(
-        { _id: o.stall, estado: 'RESERVADO' },
-        { $set: { estado: 'LIBRE', reservadoHasta: null } },
-      );
+  for (const o of paraLiberar) {
+    const updated = await this.ordenModel.findOneAndUpdate(
+      { _id: o._id, estado: { $in: ['OCUPADA'] } }, // o incluye 'ASIGNADA'
+      { $set: { estado: 'LIBERADA', liberadaEn: ahora } },
+      { new: true },
+    );
+    if (!updated) continue;
 
-      await this.solicitudModel.findByIdAndUpdate(o.solicitud, {
-        $set: { estado: 'EN_SOLICITUD' },
-      });
-    }
-
-    // 2) Órdenes OCUPADAS cuyo periodo terminó
-    const paraLiberar = await this.ordenModel
-      .find({
-        estado: 'OCUPADA',
-        $or: [{ liberarEn: { $lte: ahora } }, { fechaFin: { $lte: ahora } }],
-      })
-      .limit(500);
-
-    for (const o of paraLiberar) {
-      const updated = await this.ordenModel.findOneAndUpdate(
-        { _id: o._id, estado: 'OCUPADA' },
-        { $set: { estado: 'LIBERADA' } },
-        { new: true },
-      );
-      if (!updated) continue;
-
-      await this.stallModel.findByIdAndUpdate(o.stall, {
-        $set: { estado: 'LIBRE', reservadoHasta: null },
+    // Cierra al responsable actual y lo empuja al historial
+    await this.stallModel.updateOne(
+      { _id: o.stall },
+      {
+        $set: {
+          estado: 'LIBRE',
+          reservadoHasta: null,
+        },
         $push: {
           personasCargo: {
             nombre: o.persona?.nombre,
-            apellido: o.persona?.apellido,
+            apellido: o.persona?.apellido ?? '',
             cedula: o.persona?.cedula,
             telefono: o.persona?.telefono,
             email: o.persona?.email,
             codigoDactilar: o.persona?.codigoDactilar,
             fechaInicio: o.fechaInicio,
             fechaFin: o.fechaFin,
-            fechaFinReal: new Date(),
+            fechaFinReal: ahora,
           },
         },
-      });
-    }
-
-    // 3) Limpieza de Stalls RESERVADO con fecha vencida
-    await this.stallModel.updateMany(
-      { estado: 'RESERVADO', reservadoHasta: { $lte: ahora } },
-      { $set: { estado: 'LIBRE', reservadoHasta: null } },
+        $unset: {
+          personaACargoActual: '', // limpia el actual
+        },
+      },
     );
+
+    // Marca la solicitud como FINALIZADA (o el estado final que manejes)
+    await this.solicitudModel.findByIdAndUpdate(o.solicitud, {
+      $set: { estado: 'FINALIZADA' },
+    });
   }
+
+  // ------------------------------------------------------------------
+  // 3) Limpieza de RESERVAS vencidas (huérfanas)
+  //    - Libera stalls RESERVADO con reservadoHasta vencido
+  //    - Sincroniza órdenes EN_SOLICITUD cuya aprobación expiró
+  // ------------------------------------------------------------------
+  // libera stalls
+  await this.stallModel.updateMany(
+    { estado: 'RESERVADO', reservadoHasta: { $lte: ahora } },
+    { $set: { estado: 'LIBRE', reservadoHasta: null } },
+  );
+
+  // y de paso marca órdenes EN_SOLICITUD con aprobarAntesDe vencido
+  await this.ordenModel.updateMany(
+    { estado: 'EN_SOLICITUD', aprobarAntesDe: { $lte: ahora } },
+    { $set: { estado: 'VENCIDA', vencidaEn: ahora } },
+  );
+}
+
 }
