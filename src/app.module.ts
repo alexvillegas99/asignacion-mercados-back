@@ -10,8 +10,10 @@ import { AuthModule } from './auth/auth.module';
 import { ClientsModule } from './clients/clients.module';
 import { MarketsModule } from './markets/markets.module';
 import { StallsModule } from './stalls/stalls.module';
+import { SolicitudesModule } from './solicitudes/solicitudes.module';
+import { ScheduleModule } from '@nestjs/schedule';
 @Module({
-  imports: [ 
+  imports: [  
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     DatabaseModule,
     LogsModule,
@@ -20,6 +22,8 @@ import { StallsModule } from './stalls/stalls.module';
     ClientsModule,
     MarketsModule,
     StallsModule,
+    SolicitudesModule,
+     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -17,6 +17,7 @@ import {
 import { cacheControlMiddleware } from './common/middleware/middleware';
 import { initSwagger } from './app.swagger';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { IpInterceptor } from './common/ip/ip.interceptor';
 
 async function bootstrap() {
   const server = express();
@@ -43,6 +44,7 @@ async function bootstrap() {
   // Aplicar filtro de excepciones global
   const logsService = app.get(LogsService);
   app.useGlobalFilters(new HttpExceptionFilter(logsService));
+  app.useGlobalInterceptors(new IpInterceptor());
   // Middleware para cabeceras de caché
   server.use(cacheControlMiddleware);
 

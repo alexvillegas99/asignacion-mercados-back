@@ -31,7 +31,7 @@ export class Stall {
   @Prop({ default: true }) isActive: boolean;
 
   // Estado operacional del puesto
-  @Prop({ default: 'disponible', trim: true }) estado: string;
+  @Prop({ default: 'LIBRE', trim: true }) estado: string;
 
   // Mercado dueño del puesto
   @Prop({ type: Types.ObjectId, ref: 'Market', required: true })
