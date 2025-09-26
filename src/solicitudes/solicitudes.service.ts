@@ -88,7 +88,7 @@ export class SolicitudesService {
   });
   if (ordenActiva) {
     throw new BadRequestException(
-      'Tienes una orden activa en proceso. Finaliza o cancela antes de postular nuevamente.',
+      'Tienes una orden activa en proceso. Finaliza antes de postular nuevamente.',
     );
   }
 
