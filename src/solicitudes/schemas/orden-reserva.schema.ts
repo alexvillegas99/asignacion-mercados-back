@@ -37,7 +37,7 @@ export class OrdenReserva {
       nombre: String,
       apellido: String,
       cedula: String,
-      telefono: String,
+      telefono: String,  
       email: String,
       codigoDactilar: String,
       provincia:String,

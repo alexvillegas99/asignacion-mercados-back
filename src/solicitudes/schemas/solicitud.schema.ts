@@ -23,12 +23,12 @@ export class Solicitud {
   @Prop({ trim: true }) telefono!: string;
     @Prop({ trim: true }) provincia!: string;
   @Prop({ trim: true }) ciudad!: string;
-
+ 6
   @Prop({ type: Date }) fechaInicio!: Date;
   @Prop({ type: Date }) fechaFin!: Date;
 
   @Prop({
-    enum: ['EN_SOLICITUD', 'POSTULADA', 'APROBADA', 'RECHAZADA', 'CANCELADA'],
+    enum: ['EN_SOLICITUD', 'POSTULADA', 'APROBADA', 'RECHAZADA', 'CANCELADA', 'LIBERADA'],
     default: 'EN_SOLICITUD',
     index: true,
   })
@@ -37,7 +37,8 @@ export class Solicitud {
     | 'POSTULADA'
     | 'APROBADA'
     | 'RECHAZADA'
-    | 'CANCELADA';
+    | 'CANCELADA' 
+    | 'LIBERADA';
 
   @Prop({ type: Types.ObjectId, ref: 'OrdenReserva' })
   ordenId?: Types.ObjectId | null;

@@ -8,6 +8,11 @@ import { Model, Types } from 'mongoose';
 import { Stall, StallDocument } from './entities/stall.entity';
 import { Market, MarketDocument } from 'src/markets/entities/market.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  OrdenReserva,
+  OrdenReservaDocument,
+} from 'src/solicitudes/schemas/orden-reserva.schema';
+import { Solicitud } from 'src/solicitudes/schemas/solicitud.schema';
 
 @Injectable()
 export class StallsService {
@@ -15,8 +20,11 @@ export class StallsService {
     @InjectModel(Stall.name) private readonly stallModel: Model<StallDocument>,
     @InjectModel(Market.name)
     private readonly marketModel: Model<MarketDocument>,
+    @InjectModel(OrdenReserva.name)
+    private readonly ordenModel: Model<OrdenReservaDocument>,
+     @InjectModel(Solicitud.name) private solicitudModel: Model<Solicitud>,
   ) {
-    this.liberarStallsVencidos()
+    this.liberarStallsVencidos();
   }
 
   // ===== Helpers =====
@@ -36,11 +44,10 @@ export class StallsService {
 
   /** Valida que blockId|blockName y section pertenezcan al market. Devuelve { marketId, blockId, blockName, section } */
 
-
   // ===== CRUD =====
 
   async create(body: any): Promise<any> {
-    console.log(body)
+    console.log(body);
     const { code, name, marketId } = body || {};
     if (!code || !name || !marketId) {
       throw new BadRequestException('code, name y marketId son requeridos');
@@ -194,90 +201,128 @@ export class StallsService {
   }
 
   private async resolveBlockAndSection(marketId: string, body: any) {
-  const mid = this.asOid(marketId);
-  if (!mid) throw new NotFoundException('marketId inválido');
+    const mid = this.asOid(marketId);
+    if (!mid) throw new NotFoundException('marketId inválido');
 
-  const market = await this.marketModel.findById(mid).lean();
-  if (!market) throw new NotFoundException('Market no encontrado');
+    const market = await this.marketModel.findById(mid).lean();
+    if (!market) throw new NotFoundException('Market no encontrado');
 
-  // SECTION
-  let section: string | null = null;
-  if (body?.section != null) {
-    const s:any = String(body.section || '').trim();
-    if (s) {
-      if (!Array.isArray(market.sections) || !market.sections.includes(s)) {
-        throw new BadRequestException('Sección no válida para este mercado');
+    // SECTION
+    let section: string | null = null;
+    if (body?.section != null) {
+      const s: any = String(body.section || '').trim();
+      if (s) {
+        if (!Array.isArray(market.sections) || !market.sections.includes(s)) {
+          throw new BadRequestException('Sección no válida para este mercado');
+        }
+        section = s;
       }
-      section = s;
     }
+
+    // BLOCK por id o nombre (acepta blockId como id o como nombre; o blockName)
+    let blockId: Types.ObjectId | null = null;
+    let blockName: string | undefined = undefined;
+
+    const idOrName = body?.blockId ?? body?.blockName; // prioridad blockId, luego blockName
+    if (idOrName != null) {
+      const raw = String(idOrName).trim();
+      const guessId = this.asOid(raw);
+
+      if (guessId) {
+        // Buscar por _id
+        const found = (market.blocks || []).find(
+          (b: any) => String(b._id || '') === String(guessId),
+        );
+        if (!found)
+          throw new BadRequestException('El bloque no pertenece al mercado');
+        blockId = guessId;
+        blockName = found.name;
+      } else {
+        // Tratar como nombre
+        const found = (market.blocks || []).find(
+          (b: any) => this.norm(b?.name) === this.norm(raw),
+        );
+        if (!found)
+          throw new BadRequestException('El bloque no pertenece al mercado');
+        blockId = found._id ? new Types.ObjectId(String(found._id)) : null;
+        blockName = found.name;
+      }
+    }
+
+    return { marketId: mid, blockId, blockName, section };
   }
 
-  // BLOCK por id o nombre (acepta blockId como id o como nombre; o blockName)
-  let blockId: Types.ObjectId | null = null;
-  let blockName: string | undefined = undefined;
-
-  const idOrName = body?.blockId ?? body?.blockName; // prioridad blockId, luego blockName
-  if (idOrName != null) {
-    const raw = String(idOrName).trim();
-    const guessId = this.asOid(raw);
-
-    if (guessId) {
-      // Buscar por _id
-      const found = (market.blocks || []).find((b: any) => String(b._id || '') === String(guessId));
-      if (!found) throw new BadRequestException('El bloque no pertenece al mercado');
-      blockId = guessId;
-      blockName = found.name;
-    } else {
-      // Tratar como nombre
-      const found = (market.blocks || []).find((b: any) => this.norm(b?.name) === this.norm(raw));
-      if (!found) throw new BadRequestException('El bloque no pertenece al mercado');
-      blockId = found._id ? new Types.ObjectId(String(found._id)) : null;
-      blockName = found.name;
-    }
-  }
-
-  return { marketId: mid, blockId, blockName, section };
-}
-
-@Cron(CronExpression.EVERY_5_MINUTES, { name: 'stalls-liberacion' })
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stalls-liberacion' })
   async liberarStallsVencidos() {
     const ahora = new Date();
 
-    // Buscar stalls ocupados/asignados con personaACargoActual vencida
+    // Stalls ocupados/asignados con personaACargoActual vencida
     const stalls = await this.stallModel.find({
       estado: { $in: ['OCUPADO', 'asignado'] },
       'personaACargoActual.fechaFin': { $lte: ahora },
     });
 
     for (const s of stalls) {
-  const actual: any = s.personaACargoActual;
-  if (!actual) continue;
+      const actual: any = s.personaACargoActual;
+      if (!actual) continue;
 
-  // Asegurarse de que exista el array de historial
-  if (!Array.isArray(s.personaACargoAnterior)) {
-    s.personaACargoAnterior = [];
+      // 1) Empuja al historial (garantizando fechaInicio)
+      (s.personaACargoAnterior ??= []).push({
+        ...actual,
+        fechaInicio: actual.fechaInicio ?? new Date(), // fallback
+        fechaFin: actual.fechaFin ?? null,
+        fechaFinReal: ahora,
+      });
+
+      // 2) Limpia asignación y pone disponible
+      s.personaACargoActual = null;
+      s.estado = 'disponible';
+      await s.save();
+
+      // 3) Actualiza ORDEN -> LIBERADA (solo si estaba vigente)
+      //    Criterios:
+      //    - misma persona (cedula)
+      //    - mismo stall
+      //    - estado en ['OCUPADA','ASIGNADA'] (por si dejas ASIGNADA al aprobar)
+      //    - fechaFin o liberarEn en pasado (idempotente)
+      await this.ordenModel.updateMany(
+        {
+          stall: s._id,
+          'persona.cedula': actual.cedula,
+        },
+        {
+          $set: {
+            estado: 'LIBERADA'
+          },
+        },
+      );
+
+       await this.solicitudModel.updateMany(
+        {
+          stall: s._id,
+          cedula: actual.cedula,
+        },
+        {
+          $set: {
+            estado: 'LIBERADA'
+          },
+        },
+      );
+
+
+      // (Opcional) 4) Actualiza SOLICITUD -> FINALIZADA (déjalo comentado por ahora)
+      // await this.solicitudModel.updateMany(
+      //   {
+      //     stall: s._id,
+      //     cedula: actual.cedula,
+      //     estado: { $in: ['APROBADA', 'POSTULADA'] },
+      //   },
+      //   { $set: { estado: 'FINALIZADA' } },
+      // );
+
+      console.log(
+        `[CRON] Stall ${s.code} liberado y órdenes liberadas. Cédula=${actual.cedula}`,
+      );
+    }
   }
-
-  // Pasar al historial con fechaFinReal = ahora
- (s.personaACargoAnterior ??= []).push({
-  ...actual,
-  fechaInicio: actual.fechaInicio ?? new Date(), // fallback obligatorio
-  fechaFin: actual.fechaFin ?? null,
-  fechaFinReal: ahora,
-});
-
-
-  // Limpiar asignación actual y marcar disponible
-  s.personaACargoActual = null;
-  s.estado = 'disponible';
- 
-  await s.save();
-
-  console.log(
-    `[CRON] Stall ${s.code} liberado automáticamente. Cedula=${actual.cedula}`,
-  );
-}
-
-  }
-
 }
