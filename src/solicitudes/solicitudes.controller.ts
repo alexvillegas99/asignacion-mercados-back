@@ -32,4 +32,14 @@ export class SolicitudesController {
   runCron() {
     return this.service.revisarExpiraciones();
   }
+
+  @Get('test')
+  async testUpload() {
+    const result = await this.service.subirPdfYObtenerRespuesta();
+    return {
+      ok: true,
+      result,
+    };
+  }
+  
 }

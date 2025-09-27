@@ -14,6 +14,8 @@ export class PersonaCargo {
   @Prop({ trim: true }) telefono?: string;        // Ej: "0987654321"
   @Prop({ trim: true }) email?: string;           // Ej: "correo@dominio.com"
   @Prop({ trim: true }) codigoDactilar?: string;  // Ej: "E2433I4422"
+   @Prop({ trim: true }) ciudad?: string;       
+  @Prop({ trim: true }) provincia?: string;  
 
   @Prop({ type: Date, required: true }) fechaInicio!: Date;
   @Prop({ type: Date }) fechaFin?: Date | null;       // planificada

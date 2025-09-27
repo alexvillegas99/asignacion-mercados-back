@@ -4,7 +4,7 @@ import { HydratedDocument, Types } from 'mongoose';
 
 export type SolicitudDocument = HydratedDocument<Solicitud>;
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true,strict:false })
 export class Solicitud {
   @Prop({ type: Types.ObjectId, ref: 'Stall', index: true })
   stall!: Types.ObjectId; // 👈 referencia al puesto elegido
@@ -21,6 +21,8 @@ export class Solicitud {
   @Prop({ trim: true }) dactilar!: string;
   @Prop({ trim: true }) correo!: string;
   @Prop({ trim: true }) telefono!: string;
+    @Prop({ trim: true }) provincia!: string;
+  @Prop({ trim: true }) ciudad!: string;
 
   @Prop({ type: Date }) fechaInicio!: Date;
   @Prop({ type: Date }) fechaFin!: Date;

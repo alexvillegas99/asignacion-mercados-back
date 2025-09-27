@@ -4,7 +4,7 @@ import { HydratedDocument, Types } from 'mongoose';
 
 export type OrdenReservaDocument = HydratedDocument<OrdenReserva>;
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true , strict:false })
 export class OrdenReserva {
   @Prop({ type: Types.ObjectId, ref: 'Market', index: true })
   market!: Types.ObjectId;
@@ -40,6 +40,8 @@ export class OrdenReserva {
       telefono: String,
       email: String,
       codigoDactilar: String,
+      provincia:String,
+      ciudad:String
     },
     _id: false,
   })

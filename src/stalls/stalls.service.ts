@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Stall, StallDocument } from './entities/stall.entity';
 import { Market, MarketDocument } from 'src/markets/entities/market.entity';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class StallsService {
@@ -14,7 +15,9 @@ export class StallsService {
     @InjectModel(Stall.name) private readonly stallModel: Model<StallDocument>,
     @InjectModel(Market.name)
     private readonly marketModel: Model<MarketDocument>,
-  ) {}
+  ) {
+    this.liberarStallsVencidos()
+  }
 
   // ===== Helpers =====
   private asOid(s?: any) {
@@ -235,5 +238,46 @@ export class StallsService {
 
   return { marketId: mid, blockId, blockName, section };
 }
+
+@Cron(CronExpression.EVERY_5_MINUTES, { name: 'stalls-liberacion' })
+  async liberarStallsVencidos() {
+    const ahora = new Date();
+
+    // Buscar stalls ocupados/asignados con personaACargoActual vencida
+    const stalls = await this.stallModel.find({
+      estado: { $in: ['OCUPADO', 'asignado'] },
+      'personaACargoActual.fechaFin': { $lte: ahora },
+    });
+
+    for (const s of stalls) {
+  const actual: any = s.personaACargoActual;
+  if (!actual) continue;
+
+  // Asegurarse de que exista el array de historial
+  if (!Array.isArray(s.personaACargoAnterior)) {
+    s.personaACargoAnterior = [];
+  }
+
+  // Pasar al historial con fechaFinReal = ahora
+ (s.personaACargoAnterior ??= []).push({
+  ...actual,
+  fechaInicio: actual.fechaInicio ?? new Date(), // fallback obligatorio
+  fechaFin: actual.fechaFin ?? null,
+  fechaFinReal: ahora,
+});
+
+
+  // Limpiar asignación actual y marcar disponible
+  s.personaACargoActual = null;
+  s.estado = 'disponible';
+ 
+  await s.save();
+
+  console.log(
+    `[CRON] Stall ${s.code} liberado automáticamente. Cedula=${actual.cedula}`,
+  );
+}
+
+  }
 
 }
