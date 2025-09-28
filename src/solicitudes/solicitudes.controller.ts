@@ -14,13 +14,14 @@ export class SolicitudesController {
 
   @Post(':id/postular')
   postular(@Param('id') id: string, @ClientIp() ip: string) {
-    return this.service.postular(id,ip);
+    return this.service.postular(id, ip);
   }
 
   @Post('orden/:id/aprobar')
   aprobar(@Param('id') id: string) {
     return this.service.aprobar(id);
   }
+
 
   @Post('orden/:id/rechazar')
   rechazar(@Param('id') id: string) {
@@ -42,10 +43,19 @@ export class SolicitudesController {
     };
   }
 
-    @Get('test-mensaje')
+  @Get('test-mensaje')
   async test_mensaje() {
-  this.service.enviarPuesto('0999952397','1Q','2Q');
-    
+    this.service.enviarPuesto('0999952397', '1Q', '2Q');
   }
+
+  @Get('stall/:stallId/ultima-en-solicitud')
+  getUltimaEnSolicitud(@Param('stallId') stallId: string) {
+    return this.service.obtenerUltimaEnSolicitudPorStall(stallId);
+  }
+
   
+  @Post('orden/:id/aprobarmanual/:user')
+  aprobarManual(@Param('id') id: string, @Param('user') user: string) {
+    return this.service.aprobarManual(id, user);
+  }
 }
