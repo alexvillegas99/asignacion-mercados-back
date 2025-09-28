@@ -335,7 +335,7 @@ export class SolicitudesService {
 
       try {
         await this.solicitudModel.findByIdAndUpdate(solicitud._id, {
-          $set: { estado: 'EN_SOLICITUD' },
+          $set: { estado: 'RECHAZADA' },
           $unset: { ordenId: '' },
         });
         this.logger.warn(
