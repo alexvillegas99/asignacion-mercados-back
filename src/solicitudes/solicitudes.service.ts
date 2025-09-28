@@ -21,32 +21,61 @@ export class SolicitudesService {
     private readonly http: HttpService,
   ) {}
 
-  async crearSolicitud(dto: any) {
+async crearSolicitud(dto: any) {
     try {
       const fechaInicio = new Date(dto.fechaInicio);
       const fechaFin = new Date(dto.fechaFin);
-      if (fechaFin < fechaInicio)
+      if (isNaN(+fechaInicio) || isNaN(+fechaFin)) {
+        throw new BadRequestException('Fechas inválidas');
+      }
+      if (fechaFin < fechaInicio) {
         throw new BadRequestException('fechaFin < fechaInicio');
+      }
 
-      // 1) Buscar puesto y validar estado LIBRE
+      // 1) Buscar puesto y validar estado LIBRE/DISPONIBLE
       const stall = await this.stallModel.findById(dto.stallId).lean();
       if (!stall) throw new BadRequestException('Puesto no existe');
       if (stall.estado !== 'LIBRE' && stall.estado !== 'disponible') {
         throw new BadRequestException('El puesto no está disponible');
       }
 
-      // 2) (Opcional) denormalizar market/section desde el stall
+      // 2) Bloquear duplicados por persona o por puesto en estados activos
+      const ESTADOS_BLOQUEO = ['EN_SOLICITUD', 'POSTULADA', 'APROBADA'] as const;
+
+      // 2.a) La PERSONA ya tiene una solicitud activa
+      const existePorPersona = await this.solicitudModel.exists({
+        cedula: String(dto.cedula).trim(),
+        estado: { $in: ESTADOS_BLOQUEO as unknown as string[] },
+      });
+      if (existePorPersona) {
+        throw new BadRequestException(
+          'La persona ya tiene una solicitud en proceso (EN_SOLICITUD/POSTULADA/APROBADA)',
+        );
+      }
+
+      // 2.b) El PUESTO ya está solicitado por alguien más en estados activos
+      const existePorPuesto = await this.solicitudModel.exists({
+        stall: new Types.ObjectId(dto.stallId),
+        estado: { $in: ESTADOS_BLOQUEO as unknown as string[] },
+      });
+      if (existePorPuesto) {
+        throw new BadRequestException(
+          'El puesto ya tiene una solicitud en proceso (EN_SOLICITUD/POSTULADA/APROBADA)',
+        );
+      }
+
+      // 3) (Opcional) denormalizar market/section desde el stall
       const marketId = stall.market as unknown as Types.ObjectId;
       const section = stall.section || null;
 
-      // 3) Crear solicitud referenciando el puesto
-      return this.solicitudModel.create({
-        stall: new Types.ObjectId(dto.stallId), // 👈 guarda el puesto
-        market: marketId, // (denormalizado para filtros)
-        marketName: stall.blockName || '', // o tu fuente real del nombre
+      // 4) Crear solicitud
+      return await this.solicitudModel.create({
+        stall: new Types.ObjectId(dto.stallId),
+        market: marketId,
+        marketName: stall.blockName || '',
         section,
         nombres: dto.nombres,
-        cedula: dto.cedula,
+        cedula: String(dto.cedula).trim(),
         dactilar: dto.dactilar,
         correo: dto.correo,
         telefono: dto.telefono,
@@ -57,7 +86,10 @@ export class SolicitudesService {
         estado: 'EN_SOLICITUD',
       });
     } catch (e) {
-      console.error(e);
+      this.logger.error('[crearSolicitud] Error', e instanceof Error ? e.stack : String(e));
+      throw e instanceof BadRequestException
+        ? e
+        : new BadRequestException('No se pudo crear la solicitud');
     }
   }
   private extractCodPuestoFromCode(code?: string): string {
