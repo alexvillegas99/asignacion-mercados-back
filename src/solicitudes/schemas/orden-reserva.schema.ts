@@ -49,6 +49,12 @@ export class OrdenReserva {
 
   @Prop({ type: Object, default: null })
   pagoExterno?: object;
+
+   @Prop({ type: Boolean, default: false })
+  manual!: boolean;
+
+  @Prop({ type: String, default: null })
+  usuario?: string;
 }
 export const OrdenReservaSchema = SchemaFactory.createForClass(OrdenReserva);
 

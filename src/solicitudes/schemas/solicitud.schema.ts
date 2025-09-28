@@ -42,5 +42,12 @@ export class Solicitud {
 
   @Prop({ type: Types.ObjectId, ref: 'OrdenReserva' })
   ordenId?: Types.ObjectId | null;
+
+
+     @Prop({ type: Boolean, default: false })
+  manual!: boolean;
+
+  @Prop({ type: String, default: null })
+  usuario?: string;
 }
 export const SolicitudSchema = SchemaFactory.createForClass(Solicitud);
