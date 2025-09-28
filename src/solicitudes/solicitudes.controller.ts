@@ -41,5 +41,11 @@ export class SolicitudesController {
       result,
     };
   }
+
+    @Get('test-mensaje')
+  async test_mensaje() {
+  this.service.enviarPuesto('0999952397','1Q','2Q');
+    
+  }
   
 }
