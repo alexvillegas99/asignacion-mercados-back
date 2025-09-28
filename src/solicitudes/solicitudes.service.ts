@@ -107,6 +107,7 @@ export class SolicitudesService {
       this.logger.warn(`[POSTULAR] Solicitud no existe: ${solicitudId}`);
       throw new BadRequestException('Solicitud no existe');
     }
+
     this.logger.debug(
       `[POSTULAR] Solicitud cargada estado=${solicitud.estado} stall=${solicitud.stall}`,
     );
@@ -308,6 +309,8 @@ export class SolicitudesService {
       this.logger.debug(
         `[POSTULAR] Orden ${orden._id} almacenó respuesta externa`,
       );
+
+      this.enviarPuesto(solicitud.telefono, stall.name, stall.blockName || '');
     } catch (e: any) {
       const dt = Date.now() - tHttp;
       const status = e?.response?.status;
@@ -491,7 +494,7 @@ export class SolicitudesService {
         asignadaEn: new Date(),
       },
     });
-    this.enviarPuesto(orden.persona?.telefono, stall.name, stall.blockName || '');
+
     // 3) Marcar solicitud como APROBADA
     await this.solicitudModel.findByIdAndUpdate(orden.solicitud, {
       $set: { estado: 'APROBADA' },
