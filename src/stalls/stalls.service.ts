@@ -252,7 +252,7 @@ export class StallsService {
     return { marketId: mid, blockId, blockName, section };
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stalls-liberacion' })
+ // @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stalls-liberacion' })
   async liberarStallsVencidos() {
     const ahora = new Date();
 

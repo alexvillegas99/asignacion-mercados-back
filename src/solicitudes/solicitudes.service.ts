@@ -480,7 +480,6 @@ export class SolicitudesService {
     if (!lista.length) return;
 
     this.logger.debug(`[DEUDAS] Registros recibidos=${lista.length}`);
-    this.logger.debug(`[DEUDAS] Registros recibidos=${lista}`);
 
     for (const item of lista) {
       try {
