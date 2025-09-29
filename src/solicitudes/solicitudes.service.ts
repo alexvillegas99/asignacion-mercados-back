@@ -14,7 +14,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import * as FormData from 'form-data';
-
+import * as https from 'https';
 @Injectable()
 export class SolicitudesService {
   private readonly logger = new Logger(SolicitudesService.name);
@@ -864,7 +864,7 @@ export class SolicitudesService {
     });
     form.append('ids', 'rec_1'); // 👈 aquí simulas el inputName que manda Angular
 
-    const url = 'https://appbackend.ambato.gob.ec:3002/upload-unique';
+    const url = 'http://appbackend.ambato.gob.ec:3002/upload-unique';
 
     // Logs de lo que se envía
     this.logger.debug(`➡️ URL destino: ${url}`);
@@ -875,6 +875,7 @@ export class SolicitudesService {
           headers: form.getHeaders(),
           maxBodyLength: Infinity,
           maxContentLength: Infinity,
+           httpsAgent: new https.Agent({ rejectUnauthorized: false }),
         }),
       );
 
