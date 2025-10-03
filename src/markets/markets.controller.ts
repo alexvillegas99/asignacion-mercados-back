@@ -92,5 +92,17 @@ export class MarketsController {
     return res.status(200).json(market);
   }
 
+
+  @Patch(':id/blocks/:blockId/wholesale')
+async setBlockWholesale(
+  @Param('id') id: string,
+  @Param('blockId') blockId: string,
+  @Body() body: any,
+  @Res() res: Response,
+) {
+  const market = await this.marketsService.setBlockWholesale(id, blockId, !!body?.mayorista);
+  return res.status(200).json(market);
+}
+
   
 }

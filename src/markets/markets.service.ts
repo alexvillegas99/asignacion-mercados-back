@@ -154,18 +154,19 @@ export class MarketsService {
   private assertMarket(id: string) { if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Market ID inválido'); }
 
   // ---------- Helpers ----------
-  private ensureBlocksIds(m: MarketDocument) {
-    const blocks = m.blocks ?? [];
-    let changed = false;
-    m.blocks = blocks.map((b: any) => {
-      if (!b._id) { b._id = new Types.ObjectId(); changed = true; }
-      if (!Array.isArray(b.prefixes)) b.prefixes = [];
-      if (typeof b.exclusive !== 'boolean') b.exclusive = false;
-      if (typeof b.isActive !== 'boolean') b.isActive = true;
-      return b;
-    }) as any;
-    return changed;
-  }
+private ensureBlocksIds(m: MarketDocument) {
+  const blocks = m.blocks ?? [];
+  let changed = false;
+  m.blocks = blocks.map((b: any) => {
+    if (!b._id) { b._id = new Types.ObjectId(); changed = true; }
+    if (!Array.isArray(b.prefixes)) b.prefixes = [];
+    if (typeof b.exclusive !== 'boolean') b.exclusive = false;
+    if (typeof b.isActive !== 'boolean') b.isActive = true;
+    if (typeof b.mayorista !== 'boolean') b.mayorista = false; // <- nuevo default
+    return b;
+  }) as any;
+  return changed;
+}
 
   // ---------- Acciones sobre bloques ----------
   async renameBlock(marketId: string, blockId: string, newName: string): Promise<any> {
@@ -274,6 +275,25 @@ export class MarketsService {
     if (changed) await m.save();
     return (await this.marketModel.findById(marketId).lean());
   }
+
+  async setBlockWholesale(marketId: string, blockId: string, mayorista: boolean): Promise<any> {
+  this.assertMarket(marketId);
+  const m = await this.marketModel.findById(marketId);
+  if (!m) throw new NotFoundException('Market no encontrado');
+
+  const changed = this.ensureBlocksIds(m);
+
+  let b = Types.ObjectId.isValid(blockId) ? (m.blocks as any).id(blockId) : null;
+  if (!b) b = (m.blocks ?? []).find((x: any) => String(x._id) === String(blockId));
+  if (!b) throw new NotFoundException('Bloque no encontrado');
+
+  b.mayorista = !!mayorista;
+
+  await m.save();
+  const out = changed ? await this.marketModel.findById(marketId).lean() : m.toObject();
+  return out;
+}
+
 
   
 }

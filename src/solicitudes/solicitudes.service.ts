@@ -25,7 +25,7 @@ export class SolicitudesService {
     @InjectModel(Stall.name) private stallModel: Model<Stall>,
     private readonly http: HttpService,
   ) {
-    this.sincronizarDeudas();
+    //this.sincronizarDeudas();
   }
 
   async crearSolicitud(dto: any) {
@@ -212,10 +212,38 @@ export class SolicitudesService {
     }
 
     // 1) Reserva atómica del puesto
-    const aprobarAntesDe = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    this.logger.debug(
-      `[POSTULAR] Intentando reservar stall=${solicitud.stall} hasta=${aprobarAntesDe.toISOString()}`,
+    // === aprobarAntesDe: día siguiente a fechaInicio a las 11:00 hora Ecuador (UTC-5) ===
+    const MS_PER_HOUR = 60 * 60 * 1000;
+    const EC_OFFSET = -5; // Ecuador UTC-5, sin DST
+
+    const fechaInicioUTC = new Date(solicitud.fechaInicio);
+
+    // Pasar fechaInicio a hora local de Ecuador
+    const fechaInicioEC = new Date(
+      fechaInicioUTC.getTime() + EC_OFFSET * MS_PER_HOUR,
     );
+
+    // Construir el día siguiente en Ecuador a las 11:00
+    const siguienteDiaEC = new Date(
+      fechaInicioEC.getFullYear(),
+      fechaInicioEC.getMonth(),
+      fechaInicioEC.getDate() + 1, // día siguiente
+      11,
+      0,
+      0,
+      0, // 11:00:00
+    );
+
+    // Convertir ese 11:00 EC a UTC para guardar en Mongo
+    const aprobarAntesDe = new Date(
+      siguienteDiaEC.getTime() - EC_OFFSET * MS_PER_HOUR,
+    );
+
+    this.logger.debug(
+      `[POSTULAR] aprobarAntesDe (EC 11:00 del día siguiente) = ${aprobarAntesDe.toISOString()} ` +
+        `(fechaInicio=${fechaInicioUTC.toISOString()})`,
+    );
+
     const stall = await this.stallModel.findOneAndUpdate(
       { _id: solicitud.stall, estado: { $in: ['LIBRE', 'disponible'] } },
       { $set: { estado: 'RESERVADO', reservadoHasta: aprobarAntesDe } },
@@ -248,7 +276,7 @@ export class SolicitudesService {
       fechaInicio: solicitud.fechaInicio,
       fechaFin: solicitud.fechaFin,
       estado: 'EN_SOLICITUD',
-      aprobarAntesDe,
+      aprobarAntesDe, //TODO: VALIDAR ESTO SI ESTA BIEN ASI O CUANTO TIEMPO DE PLAZO
       persona: {
         nombre: solicitud.nombres,
         apellido: '',
@@ -474,7 +502,7 @@ export class SolicitudesService {
     }
   }
 
-  @Cron('*/10 * * * *', { name: 'sync-deudas' }) // cada 10 minutos
+  //@Cron('*/10 * * * *', { name: 'sync-deudas' }) // cada 10 minutos
   async sincronizarDeudas() {
     const lista = await this.fetchDeudas();
     if (!lista.length) return;
@@ -761,7 +789,7 @@ export class SolicitudesService {
       // La solicitud puede quedar en EN_SOLICITUD (usuario podría reintentar)
       // o en EXPIRADA si quieres bloquear.
       await this.solicitudModel.findByIdAndUpdate(o.solicitud, {
-        $set: { estado: 'EN_SOLICITUD' },
+        $set: { estado: 'VENCIDA' },
       });
     }
 
@@ -769,10 +797,29 @@ export class SolicitudesService {
     // 2) Órdenes OCUPADAS (o ASIGNADAS) cuyo periodo de uso terminó
     //    *Si tras aprobar usas 'ASIGNADA', agrega ese estado aquí*
     // ------------------------------------------------------------------
-    const paraLiberar = await this.ordenModel
+    // --- helpers ---
+    const toNoonEcuadorUTC = (d: Date) => {
+      // Toma el día de d y devuelve ese día a las 12:00 EC expresado en UTC (17:00Z)
+      return new Date(
+        Date.UTC(
+          d.getUTCFullYear(),
+          d.getUTCMonth(),
+          d.getUTCDate(),
+          17,
+          0,
+          0,
+          0, // 17:00 UTC = 12:00 en Ecuador (UTC-5)
+        ),
+      );
+    };
+
+    // Traemos candidatas y luego filtramos manualmente el umbral de mediodía EC
+    const paraLiberarRaw = await this.ordenModel
       .find({
-        estado: { $in: ['OCUPADA'] }, // o ['ASIGNADA','OCUPADA'] si usas ASIGNADA
-        $or: [{ liberarEn: { $lte: ahora } }, { fechaFin: { $lte: ahora } }],
+        estado: { $in: ['OCUPADA', 'ASIGNADA'] }, // incluye ASIGNADA si aplica
+        $or: [
+          { fechaFin: { $exists: true } }, // o usaremos fechaFin + 12:00 EC
+        ],
       })
       .select({
         _id: 1,
@@ -781,12 +828,27 @@ export class SolicitudesService {
         persona: 1,
         fechaInicio: 1,
         fechaFin: 1,
+        liberarEn: 1,
       })
       .lean();
+    console.log(paraLiberarRaw);
+    const paraLiberar: any[] = [];
 
+    for (const o of paraLiberarRaw) {
+      if (o.fechaFin) {
+        const umbralUTC = toNoonEcuadorUTC(new Date(o.fechaFin));
+        console.log(umbralUTC);
+        console.log(ahora);
+        console.log(umbralUTC <= ahora);
+        if (umbralUTC <= ahora) paraLiberar.push(o);
+      }
+    }
+
+    // `paraLiberar` contiene las órdenes que ya deben liberarse al mediodía EC.
+    console.log(paraLiberar);
     for (const o of paraLiberar) {
       const updated = await this.ordenModel.findOneAndUpdate(
-        { _id: o._id, estado: { $in: ['OCUPADA'] } }, // o incluye 'ASIGNADA'
+        { _id: o._id, estado: { $in: ['OCUPADA', 'ASIGNADA'] } }, // o incluye 'ASIGNADA'
         { $set: { estado: 'LIBERADA', liberadaEn: ahora } },
         { new: true },
       );
@@ -801,7 +863,7 @@ export class SolicitudesService {
             reservadoHasta: null,
           },
           $push: {
-            personasCargo: {
+            personaACargoAnterior: {
               nombre: o.persona?.nombre,
               apellido: o.persona?.apellido ?? '',
               provincia: o.persona?.provincia ?? '',
@@ -947,6 +1009,26 @@ export class SolicitudesService {
       );
       return { ok: false, status, message: data?.message ?? 'error' };
     }
+  }
+
+  async list(q: any) {
+    const filter: any = {};
+    console.log(q)
+    if (q.marketId) filter.market =   new Types.ObjectId(q.marketId);
+    if (q.estado) filter.estado = q.estado;
+
+    // rango de fechas (ajusta a tu campo real: fechaInicio, createdAt, etc.)
+    if (q.desde || q.hasta) {
+      filter.fechaInicio = {};
+      if (q.desde) {
+        filter.fechaInicio.$gte = new Date(q.desde + 'T00:00:00.000Z');
+      }
+      if (q.hasta) {
+        filter.fechaInicio.$lte = new Date(q.hasta + 'T23:59:59.999Z');
+      }
+    }
+    console.log(filter)
+    return this.ordenModel.find(filter).lean();
   }
 
   private readonly HARDCODED_PDF_BASE64 =

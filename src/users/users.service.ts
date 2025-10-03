@@ -23,7 +23,7 @@ export class UsersService {
   async create(createUserDto: CreateUserDto): Promise<User> {
     try {
       const email = createUserDto.email.toLowerCase().trim();
-
+ 
       const existingUser = await this.userModel
         .findOne({ email, isActive: true })
         .select('_id email')

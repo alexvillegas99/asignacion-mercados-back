@@ -1,11 +1,15 @@
 // src/solicitudes/solicitudes.controller.ts
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { SolicitudesService } from './solicitudes.service';
 import { ClientIp } from 'src/common/ip/client-ip.decorator';
 
 @Controller('solicitudes')
 export class SolicitudesController {
   constructor(private readonly service: SolicitudesService) {}
+@Get()
+  async list(@Query() q: any) {
+    return this.service.list(q);
+  }
 
   @Post()
   crear(@Body() dto: any) {
@@ -21,7 +25,6 @@ export class SolicitudesController {
   aprobar(@Param('id') id: string) {
     return this.service.aprobar(id);
   }
-
 
   @Post('orden/:id/rechazar')
   rechazar(@Param('id') id: string) {
@@ -53,7 +56,6 @@ export class SolicitudesController {
     return this.service.obtenerUltimaEnSolicitudPorStall(stallId);
   }
 
-  
   @Post('orden/:id/aprobarmanual/:user')
   aprobarManual(@Param('id') id: string, @Param('user') user: string) {
     return this.service.aprobarManual(id, user);

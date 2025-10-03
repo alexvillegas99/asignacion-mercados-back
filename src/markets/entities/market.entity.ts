@@ -8,12 +8,13 @@ export type MarketDocument = HydratedDocument<Market>;
 /** Subdocumento simple: solo nombre (+ activo opcional) */
 @Schema({ _id: true, timestamps: false })
 export class Block {
-  @Prop() _id?: Types.ObjectId;           // Dejar opcional para que Mongoose lo genere
+  @Prop() _id?: Types.ObjectId; // Dejar opcional para que Mongoose lo genere
   @Prop({ required: true, trim: true }) name: string;
 
-  @Prop({ default: true })  isActive?: boolean;
+  @Prop({ default: true }) isActive?: boolean;
 
   @Prop({ default: true }) exclusive?: boolean;
+  @Prop({ default: false }) mayorista?: boolean;
   @Prop({ type: [String], default: ['180'] }) prefixes?: string[]; // ej. ["18", "180"]
 }
 export const BlockSchema = SchemaFactory.createForClass(Block);
@@ -34,13 +35,12 @@ export class Market {
   @Prop({ default: true })
   isActive: boolean;
 
-    @Prop({
+  @Prop({
     type: [String],
     enum: Object.values(MarketSection),
     default: [],
   })
   sections?: MarketSection[];
-
 
   /** Bloques dinámicos por mercado (solo nombres) */
   @Prop({ type: [BlockSchema], default: [] })

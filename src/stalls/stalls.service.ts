@@ -22,7 +22,7 @@ export class StallsService {
     private readonly marketModel: Model<MarketDocument>,
     @InjectModel(OrdenReserva.name)
     private readonly ordenModel: Model<OrdenReservaDocument>,
-     @InjectModel(Solicitud.name) private solicitudModel: Model<Solicitud>,
+    @InjectModel(Solicitud.name) private solicitudModel: Model<Solicitud>,
   ) {
     this.liberarStallsVencidos();
   }
@@ -252,77 +252,69 @@ export class StallsService {
     return { marketId: mid, blockId, blockName, section };
   }
 
- // @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stalls-liberacion' })
-  async liberarStallsVencidos() {
-    const ahora = new Date();
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stalls-liberacion' })
+ async liberarStallsVencidos() {
+  const ahora = new Date();
 
-    // Stalls ocupados/asignados con personaACargoActual vencida
-    const stalls = await this.stallModel.find({
-      estado: { $in: ['OCUPADO', 'asignado'] },
-      'personaACargoActual.fechaFin': { $lte: ahora },
+  // Stalls ocupados/asignados con personaACargoActual vencida
+  const stalls = await this.stallModel.find({
+    estado: { $in: ['OCUPADO', 'asignado', 'ASIGNADO'] },
+    'personaACargoActual.fechaFin': { $exists: true, $ne: null },
+  });
+
+  for (const s of stalls) {
+    const actual: any = s.personaACargoActual;
+    if (!actual?.fechaFin) continue;
+
+    // ===== Calcular el umbral de liberación =====
+    // Tomamos el mismo día de fechaFin pero a las 12:00 Ecuador
+    // (UTC-5 ⇒ 17:00Z)
+    const fin = new Date(actual.fechaFin);
+    const umbralUTC = new Date(Date.UTC(
+      fin.getUTCFullYear(),
+      fin.getUTCMonth(),
+      fin.getUTCDate(),
+      17, 0, 0, 0  // 17:00 UTC = 12:00 en EC
+    ));
+
+    if (umbralUTC > ahora) continue; // aún no llega al mediodía EC → no liberar
+
+    // 1) Empuja al historial
+    (s.personaACargoAnterior ??= []).push({
+      nombre: actual.nombre,
+      apellido: actual.apellido ?? '',
+      cedula: actual.cedula,
+      telefono: actual.telefono,
+      email: actual.email,
+      codigoDactilar: actual.codigoDactilar ?? '',
+      ciudad: actual.ciudad,
+      provincia: actual.provincia,
+      fechaInicio: actual.fechaInicio ?? new Date(),
+      fechaFin: actual.fechaFin ?? null,
+      fechaFinReal: ahora,
     });
 
-    for (const s of stalls) {
-      const actual: any = s.personaACargoActual;
-      if (!actual) continue;
+    // 2) Limpia asignación y pone disponible
+    s.personaACargoActual = null;
+    s.estado = 'disponible';
+    await s.save();
 
-      // 1) Empuja al historial (garantizando fechaInicio)
-      (s.personaACargoAnterior ??= []).push({
-        ...actual,
-        fechaInicio: actual.fechaInicio ?? new Date(), // fallback
-        fechaFin: actual.fechaFin ?? null,
-        fechaFinReal: ahora,
-      });
+    // 3) Actualiza ORDEN -> LIBERADA
+    await this.ordenModel.updateMany(
+      { stall: s._id, 'persona.cedula': actual.cedula },
+      { $set: { estado: 'LIBERADA' } },
+    );
 
-      // 2) Limpia asignación y pone disponible
-      s.personaACargoActual = null;
-      s.estado = 'disponible';
-      await s.save();
+    // 4) Actualiza SOLICITUD -> LIBERADA
+    await this.solicitudModel.updateMany(
+      { stall: s._id, cedula: actual.cedula },
+      { $set: { estado: 'LIBERADA' } },
+    );
 
-      // 3) Actualiza ORDEN -> LIBERADA (solo si estaba vigente)
-      //    Criterios:
-      //    - misma persona (cedula)
-      //    - mismo stall
-      //    - estado en ['OCUPADA','ASIGNADA'] (por si dejas ASIGNADA al aprobar)
-      //    - fechaFin o liberarEn en pasado (idempotente)
-      await this.ordenModel.updateMany(
-        {
-          stall: s._id,
-          'persona.cedula': actual.cedula,
-        },
-        {
-          $set: {
-            estado: 'LIBERADA'
-          },
-        },
-      );
-
-       await this.solicitudModel.updateMany(
-        {
-          stall: s._id,
-          cedula: actual.cedula,
-        },
-        {
-          $set: {
-            estado: 'LIBERADA'
-          },
-        },
-      );
-
-
-      // (Opcional) 4) Actualiza SOLICITUD -> FINALIZADA (déjalo comentado por ahora)
-      // await this.solicitudModel.updateMany(
-      //   {
-      //     stall: s._id,
-      //     cedula: actual.cedula,
-      //     estado: { $in: ['APROBADA', 'POSTULADA'] },
-      //   },
-      //   { $set: { estado: 'FINALIZADA' } },
-      // );
-
-      console.log(
-        `[CRON] Stall ${s.code} liberado y órdenes liberadas. Cédula=${actual.cedula}`,
-      );
-    }
+    console.log(
+      `[CRON] Stall ${s.code} liberado al mediodía EC. Cédula=${actual.cedula}`,
+    );
   }
+}
+
 }
