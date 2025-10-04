@@ -213,31 +213,25 @@ export class SolicitudesService {
 
     // 1) Reserva atómica del puesto
     // === aprobarAntesDe: día siguiente a fechaInicio a las 11:00 hora Ecuador (UTC-5) ===
-    const MS_PER_HOUR = 60 * 60 * 1000;
-    const EC_OFFSET = -5; // Ecuador UTC-5, sin DST
+   const fechaInicioUTC = new Date(solicitud.fechaInicio);
 
-    const fechaInicioUTC = new Date(solicitud.fechaInicio);
+// Pasar a hora Ecuador
+const fechaInicioEC = new Date(
+  fechaInicioUTC.getTime() - 5 * 60 * 60 * 1000
+);
 
-    // Pasar fechaInicio a hora local de Ecuador
-    const fechaInicioEC = new Date(
-      fechaInicioUTC.getTime() + EC_OFFSET * MS_PER_HOUR,
-    );
+// Construir el día siguiente en Ecuador a las 23:00
+const siguienteDiaEC = new Date(
+  fechaInicioEC.getFullYear(),
+  fechaInicioEC.getMonth(),
+  fechaInicioEC.getDate() + 1,
+  23, 0, 0, 0
+);
 
-    // Construir el día siguiente en Ecuador a las 11:00
-    const siguienteDiaEC = new Date(
-      fechaInicioEC.getFullYear(),
-      fechaInicioEC.getMonth(),
-      fechaInicioEC.getDate() + 1, // día siguiente
-      11,
-      0,
-      0,
-      0, // 11:00:00
-    );
-
-    // Convertir ese 11:00 EC a UTC para guardar en Mongo
-    const aprobarAntesDe = new Date(
-      siguienteDiaEC.getTime() - EC_OFFSET * MS_PER_HOUR,
-    );
+// Convertir ese 23:00 EC a UTC
+const aprobarAntesDe = new Date(
+  siguienteDiaEC.getTime() + 5 * 60 * 60 * 1000
+);
 
     this.logger.debug(
       `[POSTULAR] aprobarAntesDe (EC 11:00 del día siguiente) = ${aprobarAntesDe.toISOString()} ` +
