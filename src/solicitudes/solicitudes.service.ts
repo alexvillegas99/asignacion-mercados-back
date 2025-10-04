@@ -766,7 +766,7 @@ const aprobarAntesDe = new Date(
     // ------------------------------------------------------------------
     // 1) Órdenes EN_SOLICITUD vencidas (no se aprobaron a tiempo)
     // ------------------------------------------------------------------
-    const vencidas = await this.ordenModel
+  /*   const vencidas = await this.ordenModel
       .find({ estado: 'EN_SOLICITUD', aprobarAntesDe: { $lte: ahora } })
       .select({ _id: 1, stall: 1, solicitud: 1 })
       .lean();
@@ -791,7 +791,7 @@ const aprobarAntesDe = new Date(
         $set: { estado: 'VENCIDA' },
       });
     }
-
+ */
     // ------------------------------------------------------------------
     // 2) Órdenes OCUPADAS (o ASIGNADAS) cuyo periodo de uso terminó
     //    *Si tras aprobar usas 'ASIGNADA', agrega ese estado aquí*
@@ -894,16 +894,16 @@ const aprobarAntesDe = new Date(
     //    - Sincroniza órdenes EN_SOLICITUD cuya aprobación expiró
     // ------------------------------------------------------------------
     // libera stalls
-    await this.stallModel.updateMany(
-      { estado: 'RESERVADO', reservadoHasta: { $lte: ahora } },
-      { $set: { estado: 'LIBRE', reservadoHasta: null } },
-    );
+    /*   await this.stallModel.updateMany(
+        { estado: 'RESERVADO', reservadoHasta: { $lte: ahora } },
+        { $set: { estado: 'LIBRE', reservadoHasta: null } },
+      );
 
-    // y de paso marca órdenes EN_SOLICITUD con aprobarAntesDe vencido
-    await this.ordenModel.updateMany(
-      { estado: 'EN_SOLICITUD', aprobarAntesDe: { $lte: ahora } },
-      { $set: { estado: 'VENCIDA', vencidaEn: ahora } },
-    );
+      // y de paso marca órdenes EN_SOLICITUD con aprobarAntesDe vencido
+      await this.ordenModel.updateMany(
+        { estado: 'EN_SOLICITUD', aprobarAntesDe: { $lte: ahora } },
+        { $set: { estado: 'VENCIDA', vencidaEn: ahora } },
+      ); */
   }
   /* 
   private parseDataUrl(b64: string): { mime: string; raw: string } {
