@@ -412,11 +412,7 @@ export class SolicitudesService {
           `[POSTULAR] Orden ${orden._id} almacenó respuesta externa`,
         );
 
-        this.enviarPuesto(
-          solicitud.telefono,
-          stall.name,
-          stall.blockName || '',
-        );
+     
       } catch (e: any) {
         const dt = Date.now() - tHttp;
         const status = e?.response?.status;
@@ -480,7 +476,11 @@ export class SolicitudesService {
     this.logger.log(
       `[POSTULAR] OK solicitudId=${solicitudId} orden=${orden._id} tiempoTotal=${dtAll}ms manual=${!!isManual}`,
     );
-
+       this.enviarPuesto(
+          solicitud.telefono,
+          stall.name,
+          stall.blockName || '',
+        );
     return {
       ...(orden.toObject?.() ? orden.toObject() : orden),
       respuestaExterna, // null en manual
