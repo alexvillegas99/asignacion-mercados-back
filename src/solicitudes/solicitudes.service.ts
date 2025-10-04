@@ -477,11 +477,11 @@ export class SolicitudesService {
       `[POSTULAR] OK solicitudId=${solicitudId} orden=${orden._id} tiempoTotal=${dtAll}ms manual=${!!isManual}`,
     );
     try {
-       this.enviarPuesto(
+     /*   this.enviarPuesto(
           solicitud.telefono,
           stall.name,
           stall.blockName || '',
-        );
+        ); */
     } catch (error) {
       
     }
