@@ -476,11 +476,16 @@ export class SolicitudesService {
     this.logger.log(
       `[POSTULAR] OK solicitudId=${solicitudId} orden=${orden._id} tiempoTotal=${dtAll}ms manual=${!!isManual}`,
     );
+    try {
        this.enviarPuesto(
           solicitud.telefono,
           stall.name,
           stall.blockName || '',
         );
+    } catch (error) {
+      
+    }
+      
     return {
       ...(orden.toObject?.() ? orden.toObject() : orden),
       respuestaExterna, // null en manual
